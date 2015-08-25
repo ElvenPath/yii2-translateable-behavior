@@ -1,25 +1,24 @@
 <?php
-/**
- * @copyright Copyright (c) 2013 2amigOS! Consulting Group LLC
- * @link http://2amigos.us
- * @license http://www.opensource.org/licenses/bsd-license.php New BSD License
- */
 namespace dosamigos\translateable;
 
+/**
+ * @copyright Copyright (c) 2013 2amigOS! Consulting Group LLC
+ * @link      http://2amigos.us
+ * @license   http://www.opensource.org/licenses/bsd-license.php New BSD License
+ */
+
 use Yii;
-use yii\base\Behavior;
-use yii\base\Event;
-use yii\db\ActiveRecord;
 
 /**
  * TranslateBehavior Behavior. Allows to maintain translations of model.
  *
- * @author Antonio Ramirez <amigo.cobos@gmail.com>
- * @link http://www.ramirezcobos.com/
- * @link http://www.2amigos.us/
- * @package dosamigos\translate
+ * @author    Antonio Ramirez <amigo.cobos@gmail.com>
+ * @link      http://www.ramirezcobos.com/
+ * @link      http://www.2amigos.us/
+ * @package   dosamigos\translate
+ * @property \yii\db\ActiveRecord $owner
  */
-class TranslateableBehavior extends Behavior
+class TranslateableBehavior extends \yii\base\Behavior
 {
     /**
      * @var string the name of the translations relation
@@ -37,7 +36,7 @@ class TranslateableBehavior extends Behavior
     public $translationAttributes = [];
 
     /**
-     * @var ActiveRecord[] the models holding the translations.
+     * @var \yii\db\ActiveRecord[] the models holding the translations.
      */
     private $_models = [];
 
@@ -53,14 +52,17 @@ class TranslateableBehavior extends Behavior
     public function events()
     {
         return [
-            ActiveRecord::EVENT_AFTER_FIND => 'afterFind',
-            ActiveRecord::EVENT_AFTER_INSERT => 'afterInsert',
-            ActiveRecord::EVENT_AFTER_UPDATE => 'afterUpdate',
+            \yii\db\ActiveRecord::EVENT_AFTER_FIND => 'afterFind',
+            \yii\db\ActiveRecord::EVENT_AFTER_INSERT => 'afterInsert',
+            \yii\db\ActiveRecord::EVENT_AFTER_UPDATE => 'afterUpdate',
         ];
     }
 
     /**
      * Make [[$translationAttributes]] writable
+     *
+     * @param string $name
+     * @param mixed  $value
      */
     public function __set($name, $value)
     {
@@ -73,6 +75,7 @@ class TranslateableBehavior extends Behavior
 
     /**
      * Make [[$translationAttributes]] readable
+     *
      * @inheritdoc
      */
     public function __get($name)
@@ -86,11 +89,13 @@ class TranslateableBehavior extends Behavior
         }
 
         $model = $this->getTranslation();
+
         return $model->$name;
     }
 
     /**
      * Expose [[$translationAttributes]] writable
+     *
      * @inheritdoc
      */
     public function canSetProperty($name, $checkVars = true)
@@ -100,6 +105,7 @@ class TranslateableBehavior extends Behavior
 
     /**
      * Expose [[$translationAttributes]] readable
+     *
      * @inheritdoc
      */
     public function canGetProperty($name, $checkVars = true)
@@ -148,6 +154,7 @@ class TranslateableBehavior extends Behavior
 
     /**
      * Returns current models' language. If null, will return app's configured language.
+     *
      * @return string
      */
     public function getLanguage()
@@ -155,11 +162,13 @@ class TranslateableBehavior extends Behavior
         if ($this->_language === null) {
             $this->_language = Yii::$app->language;
         }
+
         return $this->_language;
     }
 
     /**
      * Saves current translation model
+     *
      * @return bool
      */
     public function saveTranslation()
@@ -171,7 +180,17 @@ class TranslateableBehavior extends Behavior
         }
         /** @var \yii\db\ActiveQuery $relation */
         $relation = $this->owner->getRelation($this->relation);
-        $model->{key($relation->link)} = $this->owner->getPrimaryKey();
+
+        // Composite primary key
+        if (is_array($this->owner->getPrimaryKey())) {
+            foreach ($this->owner->getPrimaryKey() as $k => $v) {
+                $model->{$k} = $v;
+            }
+        } else {
+            $model->{key($relation->link)} = $this->owner->getPrimaryKey();
+        }
+
+
         return $model->save();
 
     }
@@ -180,8 +199,7 @@ class TranslateableBehavior extends Behavior
      * Returns a related translation model
      *
      * @param string|null $language the language to return. If null, current sys language
-     *
-     * @return ActiveRecord
+     * @return \yii\db\ActiveRecord
      */
     public function getTranslation($language = null)
     {
@@ -198,12 +216,9 @@ class TranslateableBehavior extends Behavior
 
     /**
      * Loads all specified languages. For example:
-     *
      * ```
      * $model->loadTranslations("en-US");
-     *
      * $model->loadTranslations(["en-US", "es-ES"]);
-     *
      * ```
      *
      * @param string|array $languages
@@ -221,7 +236,6 @@ class TranslateableBehavior extends Behavior
      * Loads a specific translation model
      *
      * @param string $language the language to return
-     *
      * @return null|\yii\db\ActiveQuery|static
      */
     private function loadTranslation($language)
@@ -229,16 +243,35 @@ class TranslateableBehavior extends Behavior
         $translation = null;
         /** @var \yii\db\ActiveQuery $relation */
         $relation = $this->owner->getRelation($this->relation);
-        /** @var ActiveRecord $class */
+        /** @var \yii\db\ActiveRecord $class */
         $class = $relation->modelClass;
         if ($this->owner->getPrimarykey()) {
-            $translation = $class::findOne(
-                [$this->languageField => $language, key($relation->link) => $this->owner->getPrimarykey()]
-            );
+            // Composite primary key
+            if (is_array($this->owner->getPrimarykey())) {
+                $conditions = [$this->languageField => $language];
+
+                foreach ($this->owner->getPrimarykey() as $k => $v) {
+                    $conditions[$k] = $v;
+                }
+
+                $translation = $class::findOne($conditions);
+            } else {
+                $translation = $class::findOne(
+                    [$this->languageField => $language, key($relation->link) => $this->owner->getPrimarykey()]
+                );
+            }
         }
         if ($translation === null) {
             $translation = new $class;
-            $translation->{key($relation->link)} = $this->owner->getPrimaryKey();
+            // Composite primary key
+            if (is_array($this->owner->getPrimaryKey())) {
+                foreach ($this->owner->getPrimaryKey() as $k => $v) {
+                    $translation->{$k} = $v;
+                }
+            } else {
+                $translation->{key($relation->link)} = $this->owner->getPrimaryKey();
+
+            }
             $translation->{$this->languageField} = $language;
         }
 
@@ -251,6 +284,7 @@ class TranslateableBehavior extends Behavior
     private function populateTranslations()
     {
         //translations
+        /** @var \yii\db\ActiveRecord[] $aRelated */
         $aRelated = $this->owner->getRelatedRecords();
         if (isset($aRelated[$this->relation]) && $aRelated[$this->relation] != null) {
             if (is_array($aRelated[$this->relation])) {
@@ -258,9 +292,9 @@ class TranslateableBehavior extends Behavior
                     $this->_models[$model->getAttribute($this->languageField)] = $model;
                 }
             } else {
-                $model = $aRelated[$this->relation];
+                $model                                                     = $aRelated[$this->relation];
                 $this->_models[$model->getAttribute($this->languageField)] = $model;
             }
         }
     }
-} 
+}
